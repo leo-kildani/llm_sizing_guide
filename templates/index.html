@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Sizing Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <main class="layout">
+    <aside class="panel controls">
+      <form id="config-form" autocomplete="off">
+        <section class="field-group">
+          <h2>Workload</h2>
+          <label>
+            <span>GPUs (tensor-parallel)</span>
+            <input type="number" name="num_gpu" id="num_gpu" min="1" step="1" />
+          </label>
+          <label>
+            <span>Input size (tokens)</span>
+            <input type="number" name="prompt_sz" id="prompt_sz" min="1" step="1" />
+          </label>
+          <label>
+            <span>Output size (tokens)</span>
+            <input type="number" name="response_sz" id="response_sz" min="1" step="1" />
+          </label>
+          <label>
+            <span>Concurrent users</span>
+            <input type="number" name="n_concurrent_req" id="n_concurrent_req" min="1" step="1" />
+          </label>
+        </section>
+
+        <section class="field-group">
+          <h2>Overheads</h2>
+          <label>
+            <span>System overhead (GB/GPU)</span>
+            <input type="number" name="system_overhead_gb" id="system_overhead_gb" min="0" step="0.1" />
+          </label>
+          <label>
+            <span>VRAM utilization</span>
+            <input type="number" name="vram_util" id="vram_util" min="0.01" max="1" step="0.01" />
+          </label>
+          <label>
+            <span>KV fragmentation</span>
+            <input type="number" name="kv_frag" id="kv_frag" min="0.01" step="0.01" />
+          </label>
+          <label>
+            <span>Weight quant</span>
+            <select name="quant" id="quant"></select>
+          </label>
+          <label>
+            <span>KV quant</span>
+            <select name="kv_quant" id="kv_quant"></select>
+          </label>
+        </section>
+
+        <section class="field-group">
+          <div class="section-head">
+            <h2>GPUs</h2>
+            <button type="button" class="linkish" data-toggle="gpus">Toggle all</button>
+          </div>
+          <div class="checklist" id="gpu-list"></div>
+        </section>
+
+        <section class="field-group">
+          <div class="section-head">
+            <h2>Models</h2>
+            <button type="button" class="linkish" data-toggle="models">Toggle all</button>
+          </div>
+          <div class="checklist" id="model-list"></div>
+        </section>
+
+        <div class="actions">
+          <button type="submit" class="primary" id="calculate-btn">Calculate</button>
+        </div>
+      </form>
+    </aside>
+
+    <section class="panel results">
+      <div id="error" class="banner error" hidden></div>
+      <div id="warnings" class="banner warn" hidden></div>
+
+      <article class="table-block">
+        <h2>Memory Footprint</h2>
+        <div class="table-scroll" id="table-memory"></div>
+      </article>
+      <article class="table-block">
+        <h2>Concurrent Capacity</h2>
+        <div class="table-scroll" id="table-concurrent"></div>
+      </article>
+      <article class="table-block">
+        <h2>Capacity &amp; Latency</h2>
+        <div class="table-scroll" id="table-performance"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -5,6 +5,22 @@ Blog: https://blogs.vmware.com/cloud-foundation/2024/09/25/llm-inference-sizing-
 # Usage
 Prerequisite: `pip install -r requirements.txt`
 
+## Web UI
+Interactive Flask UI to tweak GPUs, models, workload, and overheads and see the three result tables live:
+
+```bash
+python app.py
+```
+
+Then open http://127.0.0.1:5000/. Or: `flask --app app run`.
+
+Smoke check (no browser):
+
+```bash
+python -c "from app import app; c=app.test_client(); assert c.get('/api/options').status_code==200"
+```
+
+## CLI
 Here are the Flags and their abbreviations for the script.
 - num_gpu ('-g'): Specify the number of GPUs you plan to use for your deployment.
 - prompt_sz ('-p'): Define the average size of the input prompts you expect to process.
