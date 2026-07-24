@@ -1,131 +1,128 @@
-"""Reporting utilities for LLM performance calculations."""
+"""Format calculator results for the UI / API.
 
-import csv
-from datetime import datetime
-from typing import List, Dict, Any
-from tabulate import tabulate
+Column order matters: the UI renders keys in order and hides the trailing
+"detail" columns until the user asks for them.
+"""
+
+from typing import Any, Dict, List, Tuple
+
+from llm_calculator.performance import ConcurrentCapacity, PerformanceMetrics
+
+# Primary keys first; trailing keys are detail columns (UI Details toggle).
+_MEMORY_DETAIL = ("Arch", "Total VRAM")
+_CONCURRENT_DETAIL = ("Free for KV", "Max Context Window", "Max KV Tokens")
+_PERF_DETAIL = ("Prefill / Token", "TPOT @ batch 1", "Max KV Tokens")
+
+
+def _fmt(val: Any, spec: str, unit: str = "") -> Any:
+    if isinstance(val, float):
+        return f"{val:{spec}}{unit}"
+    return val
+
+
+def _assert_detail_trailing(keys: List[str], detail: Tuple[str, ...]) -> None:
+    detail_set = set(detail)
+    primary = [k for k in keys if k not in detail_set]
+    trailing = [k for k in keys if k in detail_set]
+    assert keys == primary + trailing, (
+        f"detail columns must trail primary: got {keys}, detail={detail}"
+    )
+    assert trailing == list(detail), f"detail order mismatch: {trailing} vs {detail}"
+
 
 class PerformanceReporter:
-    """Reporter class for generating and saving performance reports."""
-
-    @staticmethod
-    def save_to_csv(data: List[Dict[str, Any]], filename_prefix: str) -> str:
-        """Save data to CSV file with timestamp."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f'{filename_prefix}_{timestamp}.csv'
-        
-        with open(filename, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
-        
-        return filename
-
-    @staticmethod
-    def print_table(data: List[Dict[str, Any]], title: str = "") -> None:
-        """Print data in tabulated format."""
-        if title:
-            print(f"\n{title}")
-        print(tabulate(data, headers="keys", tablefmt='orgtbl'))
-
     @staticmethod
     def format_memory_footprint_row(
         model_name: str,
         gpu_name: str,
-        prompt_size: int,
-        response_size: int,
-        n_concurrent_request: int,
-        weight_quant: str,
-        kv_quant: str,
+        arch_label: str,
         total_vram_gb: float,
         model_memory_gb: float,
-        kv_per_request_avg_gb: float,
+        kv_per_request_gb: float,
         kv_per_request_max_gb: float,
-        available_for_inference_gb: float,
+        free_for_kv_gb: float,
         memory_footprint: float,
         feasible: bool,
     ) -> Dict[str, Any]:
-        """Format a row for memory footprint report."""
         return {
-            'Model': model_name,
-            'GPU': gpu_name,
-            'Input Size (tokens)': prompt_size,
-            'Output Size (tokens)': response_size,
-            'Concurrent Requests': n_concurrent_request,
-            'Weight Quant': weight_quant,
-            'KV Quant': kv_quant,
-            'Total VRAM Available': f"{total_vram_gb:.2f} GB",
-            'Model Memory Required': f"{model_memory_gb:.2f} GB",
-            'KV per Request @ Avg Context': f"{kv_per_request_avg_gb:.4f} GB",
-            'KV per Request @ Max Context': f"{kv_per_request_max_gb:.4f} GB",
-            'Available for Inference': f"{available_for_inference_gb:.2f} GB",
-            'Memory Footprint': f"{memory_footprint:.2f} GB",
-            'Fits': 'YES' if feasible else 'NO',
+            "Model": model_name,
+            "GPU": gpu_name,
+            "Fits": "YES" if feasible else "NO",
+            "Footprint": f"{memory_footprint:.2f} GB",
+            "Weights": f"{model_memory_gb:.2f} GB",
+            "Free for KV": f"{free_for_kv_gb:.2f} GB",
+            "KV / Request": f"{kv_per_request_gb:.4f} GB",
+            "KV @ Max Ctx": f"{kv_per_request_max_gb:.4f} GB",
+            "Arch": arch_label,
+            "Total VRAM": f"{total_vram_gb:.2f} GB",
         }
 
     @staticmethod
     def format_performance_row(
         model_name: str,
         gpu_name: str,
-        prompt_size: int,
-        response_size: int,
-        n_concurrent_request: int,
-        metrics: 'PerformanceMetrics',
+        metrics: PerformanceMetrics,
     ) -> Dict[str, Any]:
-        """Format a row for performance metrics report."""
-        def fmt(val, spec):
-            return f"{val:{spec}}" if isinstance(val, float) else val
-
         return {
-            'Model': model_name,
-            'GPU': gpu_name,
-            'Input Size (tokens)': prompt_size,
-            'Output Size (tokens)': response_size,
-            'Concurrent Requests': n_concurrent_request,
-            'Fits': 'YES' if metrics.feasible else 'NO',
-            'Max # KV Cache Tokens': str(metrics.kv_cache_tokens),
-            'Prefill Time': (
-                f"{metrics.prefill_time_per_token:.3f} ms"
-                if isinstance(metrics.prefill_time_per_token, float)
-                else metrics.prefill_time_per_token
-            ),
-            'TPOT (ms)': (
-                f"{metrics.tpot:.3f} ms" if isinstance(metrics.tpot, float) else metrics.tpot
-            ),
-            'TPOT batch-1 (ceiling)': (
-                f"{metrics.tpot_batch1:.3f} ms"
-                if isinstance(metrics.tpot_batch1, float)
-                else metrics.tpot_batch1
-            ),
-            'TTFT': fmt(metrics.ttft, '.3f') + (' s' if isinstance(metrics.ttft, float) else ''),
-            'E2E Latency': (
-                f"{metrics.e2e_latency:.1f} s"
-                if isinstance(metrics.e2e_latency, float)
-                else metrics.e2e_latency
-            ),
-            'Output Tokens Throughput': (
-                f"{metrics.throughput:.2f} tokens/sec"
-                if isinstance(metrics.throughput, float)
-                else metrics.throughput
-            ),
+            "Model": model_name,
+            "GPU": gpu_name,
+            "Fits": "YES" if metrics.feasible else "NO",
+            "TTFT": _fmt(metrics.ttft, ".2f", " s"),
+            "TPOT": _fmt(metrics.tpot, ".2f", " ms"),
+            "E2E": _fmt(metrics.e2e_latency, ".1f", " s"),
+            "Throughput": _fmt(metrics.throughput, ".1f", " tok/s"),
+            "Prefill / Token": _fmt(metrics.prefill_time_per_token, ".3f", " ms"),
+            "TPOT @ batch 1": _fmt(metrics.tpot_batch1, ".2f", " ms"),
+            "Max KV Tokens": f"{metrics.kv_cache_tokens:,}",
         }
 
     @staticmethod
     def format_concurrent_capacity_row(
         model_name: str,
         gpu_name: str,
-        num_gpu: int,
-        capacity: 'ConcurrentCapacity',
+        capacity: ConcurrentCapacity,
     ) -> Dict[str, Any]:
-        """Format a row for model×GPU concurrent-user capacity (no assumed -c)."""
         return {
-            'Model': model_name,
-            'GPU': gpu_name,
-            'Num GPUs': num_gpu,
-            'Max Context Window': capacity.max_context_window,
-            'Avg Context Window': capacity.avg_context_window,
-            'Available for KV (GB)': f"{capacity.available_for_kv_gb:.2f}",
-            'Max # KV Cache Tokens': capacity.kv_cache_window,
-            'Concurrent @ Max Context': capacity.concurrent_at_max_context,
-            'Concurrent @ Avg Context': capacity.concurrent_at_avg_context,
+            "Model": model_name,
+            "GPU": gpu_name,
+            "Concurrent @ Workload": capacity.concurrent_at_avg_context,
+            "Concurrent @ Max Ctx": capacity.concurrent_at_max_context,
+            "Free for KV": f"{capacity.available_for_kv_gb:.2f} GB",
+            "Max Context Window": f"{capacity.max_context_window:,}",
+            "Max KV Tokens": f"{capacity.kv_cache_window:,}",
         }
+
+
+if __name__ == "__main__":
+    mem = PerformanceReporter.format_memory_footprint_row(
+        "m", "g", "Standard", 80.0, 10.0, 0.1, 0.2, 50.0, 12.0, True
+    )
+    _assert_detail_trailing(list(mem), _MEMORY_DETAIL)
+
+    cap = PerformanceReporter.format_concurrent_capacity_row(
+        "m",
+        "g",
+        ConcurrentCapacity(
+            kv_cache_window=1000,
+            max_context_window=128000,
+            avg_context_window=4352,
+            concurrent_at_max_context=1,
+            concurrent_at_avg_context=4,
+            available_for_kv_gb=40.0,
+        ),
+    )
+    _assert_detail_trailing(list(cap), _CONCURRENT_DETAIL)
+
+    metrics = PerformanceMetrics(
+        feasible=True,
+        ttft=1.0,
+        tpot=10.0,
+        e2e_latency=2.0,
+        throughput=100.0,
+        prefill_time_per_token=0.1,
+        tpot_batch1=5.0,
+        kv_cache_tokens=1000,
+    )
+    perf = PerformanceReporter.format_performance_row("m", "g", metrics)
+    _assert_detail_trailing(list(perf), _PERF_DETAIL)
+    print("reporting column order ok")

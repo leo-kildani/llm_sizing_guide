@@ -1,5 +1,6 @@
 *.csv
 
-**/__pycache__/
+__pycache__/
+llm_calculator/__pycache__/
 
 .cursor/

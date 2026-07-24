@@ -5,28 +5,22 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Flask, jsonify, render_template, request
 
 from configs.gpu_specs import GPU_SPECS, GPUSpec
-from configs.model_specs import MODEL_SPECS, ModelSpec
-from LLM_size_pef_calculator import (
-    calculate_concurrent_capacity,
-    calculate_memory_footprint,
-    calculate_performance_metrics,
-)
+from configs.model_specs import MODEL_SPECS, ModelSpec, arch_label
 from llm_calculator.performance import (
+    BYTES_BY_QUANT,
     DEFAULT_KV_FRAGMENTATION,
     DEFAULT_KV_QUANT,
     DEFAULT_QUANT,
     DEFAULT_SYSTEM_OVERHEAD_GB_PER_GPU,
     DEFAULT_VRAM_UTILIZATION,
-    KV_BYTES_BY_QUANT,
-    WEIGHT_BYTES_BY_QUANT,
     PerformanceCalculator,
-    resolve_kv_bytes,
-    resolve_weight_bytes,
+    resolve_bytes,
 )
+from llm_calculator.reporting import PerformanceReporter
 
 app = Flask(__name__)
+app.json.sort_keys = False  # keep reporter column order for UI detail split
 
-# CLI defaults for the interactive form
 DEFAULT_NUM_GPU = 1
 DEFAULT_PROMPT_SZ = 4096
 DEFAULT_RESPONSE_SZ = 256
@@ -47,36 +41,7 @@ def _filter_specs(
     return selected_models, selected_gpus
 
 
-def _infeasible_warnings(
-    calculator: PerformanceCalculator,
-    models: List[ModelSpec],
-    gpus: List[GPUSpec],
-    prompt_size: int,
-    response_size: int,
-    n_concurrent_request: int,
-) -> List[str]:
-    """Same feasibility checks as CLI check_memory_requirements, as strings."""
-    warnings: List[str] = []
-    context_window = prompt_size + response_size
-    for model in models:
-        for gpu in gpus:
-            if calculator.fits(gpu, model, n_concurrent_request, context_window):
-                continue
-            max_n = calculator.calc_max_concurrent_requests(gpu, model, context_window)
-            warnings.append(
-                f"INFEASIBLE {model.name}: n_concurrent_request={n_concurrent_request} "
-                f"does not fit ISL={prompt_size} OSL={response_size} on "
-                f"{calculator.num_gpu}x {gpu.name}. "
-                f"Memory footprint="
-                f"{calculator.calc_memory_footprint(model, n_concurrent_request, context_window):.2f} GB "
-                f"vs usable VRAM={calculator.usable_vram_gib(gpu):.2f} GB. "
-                f"Max concurrent at this context: {max_n}"
-            )
-    return warnings
-
-
 def _parse_calculate_body(data: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
-    """Validate request JSON; return (params, error_message)."""
     try:
         num_gpu = int(data.get("num_gpu", DEFAULT_NUM_GPU))
         prompt_sz = int(data.get("prompt_sz", DEFAULT_PROMPT_SZ))
@@ -98,10 +63,10 @@ def _parse_calculate_body(data: Dict[str, Any]) -> Tuple[Dict[str, Any], Optiona
         return {}, "system_overhead_gb must be >= 0 and kv_frag must be > 0"
     if not (0 < vram_util <= 1):
         return {}, "vram_util must be in (0, 1]"
-    if quant not in WEIGHT_BYTES_BY_QUANT:
-        return {}, f"Unknown quant {quant!r}; choose from {sorted(WEIGHT_BYTES_BY_QUANT)}"
-    if kv_quant not in KV_BYTES_BY_QUANT:
-        return {}, f"Unknown kv_quant {kv_quant!r}; choose from {sorted(KV_BYTES_BY_QUANT)}"
+    if quant not in BYTES_BY_QUANT:
+        return {}, f"Unknown quant {quant!r}; choose from {sorted(BYTES_BY_QUANT)}"
+    if kv_quant not in BYTES_BY_QUANT:
+        return {}, f"Unknown kv_quant {kv_quant!r}; choose from {sorted(BYTES_BY_QUANT)}"
 
     gpu_names = data.get("gpu_names") or []
     model_names = data.get("model_names") or []
@@ -139,9 +104,22 @@ def api_options():
     return jsonify(
         {
             "models": [m.name for m in MODEL_SPECS],
+            "model_details": [
+                {
+                    "name": m.name,
+                    "architecture": m.architecture,
+                    "arch_label": arch_label(m.architecture),
+                    "params_billion": m.params_billion,
+                    "max_context_window": m.max_context_window,
+                }
+                for m in MODEL_SPECS
+            ],
             "gpus": [g.name for g in GPU_SPECS],
-            "weight_quants": sorted(WEIGHT_BYTES_BY_QUANT),
-            "kv_quants": sorted(KV_BYTES_BY_QUANT),
+            "gpu_details": [
+                {"name": g.name, "memory_gb": g.memory_gb} for g in GPU_SPECS
+            ],
+            "weight_quants": sorted(BYTES_BY_QUANT),
+            "kv_quants": sorted(BYTES_BY_QUANT),
             "defaults": {
                 "num_gpu": DEFAULT_NUM_GPU,
                 "prompt_sz": DEFAULT_PROMPT_SZ,
@@ -173,43 +151,76 @@ def api_calculate():
         params["num_gpu"],
         system_overhead_gb_per_gpu=params["system_overhead_gb"],
         vram_utilization=params["vram_util"],
-        weight_bytes=resolve_weight_bytes(params["quant"]),
-        kv_bytes=resolve_kv_bytes(params["kv_quant"]),
+        weight_bytes=resolve_bytes(params["quant"]),
+        kv_bytes=resolve_bytes(params["kv_quant"]),
         kv_fragmentation=params["kv_frag"],
     )
-    models = params["models"]
-    gpus = params["gpus"]
-    avg_context = params["prompt_sz"] + params["response_sz"]
 
-    memory = calculate_memory_footprint(
-        calculator,
-        models,
-        gpus,
-        params["prompt_sz"],
-        params["response_sz"],
-        params["n_concurrent_req"],
-        params["quant"],
-        params["kv_quant"],
-    )
-    concurrent = calculate_concurrent_capacity(
-        calculator, models, gpus, avg_context
-    )
-    performance = calculate_performance_metrics(
-        calculator,
-        models,
-        gpus,
-        params["prompt_sz"],
-        params["response_sz"],
-        params["n_concurrent_req"],
-    )
-    warnings = _infeasible_warnings(
-        calculator,
-        models,
-        gpus,
-        params["prompt_sz"],
-        params["response_sz"],
-        params["n_concurrent_req"],
-    )
+    memory, concurrent, performance, warnings = [], [], [], []
+    context_window = params["prompt_sz"] + params["response_sz"]
+
+    for model in params["models"]:
+        model_memory = calculator.weight_gib(model)
+        # per_request_gb, not raw KV, so the column reconciles with the footprint for
+        # architectures that also hold a fixed recurrent state.
+        kv_per_request = calculator.per_request_gb(model, context_window)
+        kv_max = calculator.per_request_gb(model, model.max_context_window)
+        footprint = calculator.calc_memory_footprint(
+            model, params["n_concurrent_req"], context_window
+        )
+
+        for gpu in params["gpus"]:
+            total_vram = calculator.num_gpu * gpu.memory_gb
+            fits = calculator.fits(
+                gpu, model, params["n_concurrent_req"], context_window
+            )
+
+            if not fits:
+                max_n = calculator.calc_max_concurrent_requests(
+                    gpu, model, context_window
+                )
+                warnings.append(
+                    f"INFEASIBLE {model.name}: n_concurrent_request={params['n_concurrent_req']} "
+                    f"does not fit ISL={params['prompt_sz']} OSL={params['response_sz']} on "
+                    f"{calculator.num_gpu}x {gpu.name}. "
+                    f"Memory footprint={footprint:.2f} GB vs usable VRAM={calculator.usable_vram_gib(gpu):.2f} GB. "
+                    f"Max concurrent at this context: {max_n}"
+                )
+
+            memory.append(
+                PerformanceReporter.format_memory_footprint_row(
+                    model.name,
+                    gpu.name,
+                    arch_label(model.architecture),
+                    total_vram,
+                    model_memory,
+                    kv_per_request,
+                    kv_max,
+                    calculator.available_for_kv_gib(gpu, model),
+                    footprint,
+                    fits,
+                )
+            )
+            concurrent.append(
+                PerformanceReporter.format_concurrent_capacity_row(
+                    model.name,
+                    gpu.name,
+                    calculator.calc_concurrent_capacity(gpu, model, context_window),
+                )
+            )
+            performance.append(
+                PerformanceReporter.format_performance_row(
+                    model.name,
+                    gpu.name,
+                    calculator.calculate_metrics(
+                        model,
+                        gpu,
+                        prompt_size=params["prompt_sz"],
+                        response_size=params["response_sz"],
+                        n_concurrent_request=params["n_concurrent_req"],
+                    ),
+                )
+            )
 
     return jsonify(
         {
@@ -222,5 +233,4 @@ def api_calculate():
 
 
 if __name__ == "__main__":
-    # Smoke: python -c "from app import app; c=app.test_client(); assert c.get('/api/options').status_code==200"
     app.run(debug=True)

@@ -1,105 +1,260 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LLM Sizing Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
 </head>
+
 <body>
   <div class="grid-bg" aria-hidden="true"></div>
 
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">LLM</span>
+      <div class="brand-text">
+        <h1>Sizing&nbsp;Guide</h1>
+        <p>Memory, concurrency and latency estimates for inference across GPUs.</p>
+      </div>
+    </div>
+    <button type="button" class="ghost" id="methodology-open">How it&#39;s calculated</button>
+  </header>
+
   <main class="layout">
-    <aside class="panel controls">
-      <form id="config-form" autocomplete="off">
-        <section class="field-group">
-          <h2>Workload</h2>
+    <form class="rail" id="config-form" autocomplete="off">
+      <section class="panel" aria-labelledby="card-config">
+        <div class="panel-head">
+          <h2 id="card-config">Workload</h2>
+        </div>
+        <div class="field-grid">
           <label>
-            <span>GPUs (tensor-parallel)</span>
-            <input type="number" name="num_gpu" id="num_gpu" min="1" step="1" />
-          </label>
-          <label>
-            <span>Input size (tokens)</span>
-            <input type="number" name="prompt_sz" id="prompt_sz" min="1" step="1" />
-          </label>
-          <label>
-            <span>Output size (tokens)</span>
-            <input type="number" name="response_sz" id="response_sz" min="1" step="1" />
+            <span>GPUs <em>tensor-parallel</em></span>
+            <input type="number" name="num_gpu" id="num_gpu" min="1" step="1" inputmode="numeric" />
           </label>
           <label>
             <span>Concurrent users</span>
-            <input type="number" name="n_concurrent_req" id="n_concurrent_req" min="1" step="1" />
-          </label>
-        </section>
-
-        <section class="field-group">
-          <h2>Overheads</h2>
-          <label>
-            <span>System overhead (GB/GPU)</span>
-            <input type="number" name="system_overhead_gb" id="system_overhead_gb" min="0" step="0.1" />
+            <input type="number" name="n_concurrent_req" id="n_concurrent_req" min="1" step="1" inputmode="numeric" />
           </label>
           <label>
-            <span>VRAM utilization</span>
-            <input type="number" name="vram_util" id="vram_util" min="0.01" max="1" step="0.01" />
+            <span>Input <em>tokens</em></span>
+            <input type="number" name="prompt_sz" id="prompt_sz" min="1" step="1" inputmode="numeric" />
           </label>
           <label>
-            <span>KV fragmentation</span>
-            <input type="number" name="kv_frag" id="kv_frag" min="0.01" step="0.01" />
+            <span>Output <em>tokens</em></span>
+            <input type="number" name="response_sz" id="response_sz" min="1" step="1" inputmode="numeric" />
           </label>
-          <label>
-            <span>Weight quant</span>
-            <select name="quant" id="quant"></select>
-          </label>
-          <label>
-            <span>KV quant</span>
-            <select name="kv_quant" id="kv_quant"></select>
-          </label>
-        </section>
-
-        <section class="field-group">
-          <div class="section-head">
-            <h2>GPUs</h2>
-            <button type="button" class="linkish" data-toggle="gpus">Toggle all</button>
-          </div>
-          <div class="checklist" id="gpu-list"></div>
-        </section>
-
-        <section class="field-group">
-          <div class="section-head">
-            <h2>Models</h2>
-            <button type="button" class="linkish" data-toggle="models">Toggle all</button>
-          </div>
-          <div class="checklist" id="model-list"></div>
-        </section>
-
-        <div class="actions">
-          <button type="submit" class="primary" id="calculate-btn">Calculate</button>
         </div>
-      </form>
-    </aside>
 
-    <section class="panel results">
-      <div id="error" class="banner error" hidden></div>
-      <div id="warnings" class="banner warn" hidden></div>
+        <details class="advanced">
+          <summary>Precision &amp; overheads</summary>
+          <div class="field-grid">
+            <label>
+              <span>Weight quant</span>
+              <select name="quant" id="quant"></select>
+            </label>
+            <label>
+              <span>KV quant</span>
+              <select name="kv_quant" id="kv_quant"></select>
+            </label>
+            <label>
+              <span>Overhead <em>GB/GPU</em></span>
+              <input type="number" name="system_overhead_gb" id="system_overhead_gb" min="0" step="0.1" />
+            </label>
+            <label>
+              <span>VRAM util</span>
+              <input type="number" name="vram_util" id="vram_util" min="0.01" max="1" step="0.01" />
+            </label>
+            <label>
+              <span>KV fragmentation</span>
+              <input type="number" name="kv_frag" id="kv_frag" min="0.01" step="0.01" />
+            </label>
+          </div>
+        </details>
+      </section>
 
-      <article class="table-block">
-        <h2>Memory Footprint</h2>
+      <section class="panel" aria-labelledby="card-gpus">
+        <div class="panel-head">
+          <h2 id="card-gpus">GPUs</h2>
+          <span class="count" id="gpu-count" aria-live="polite"></span>
+          <button type="button" class="linkish" data-toggle="gpus">Toggle all</button>
+        </div>
+        <div class="checklist" id="gpu-list" role="group" aria-labelledby="card-gpus"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="card-models">
+        <div class="panel-head">
+          <h2 id="card-models">Models</h2>
+          <span class="count" id="model-count" aria-live="polite"></span>
+          <button type="button" class="linkish" data-toggle="models">Toggle all</button>
+        </div>
+        <div class="checklist checklist-models" id="model-list" role="group" aria-labelledby="card-models"></div>
+      </section>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="calculate-btn">Calculate</button>
+      </div>
+    </form>
+
+    <section class="results">
+      <div id="error" class="banner error" hidden role="alert"></div>
+      <details id="warnings-block" class="banner warn" hidden>
+        <summary><span id="warnings-count"></span></summary>
+        <div id="warnings"></div>
+      </details>
+
+      <article class="table-block" data-table="memory_footprint">
+        <div class="table-head">
+          <h2>Memory footprint</h2>
+          <div class="table-tools"></div>
+        </div>
         <div class="table-scroll" id="table-memory"></div>
       </article>
-      <article class="table-block">
-        <h2>Concurrent Capacity</h2>
+
+      <article class="table-block" data-table="concurrent_capacity">
+        <div class="table-head">
+          <h2>Concurrent capacity</h2>
+          <div class="table-tools"></div>
+        </div>
         <div class="table-scroll" id="table-concurrent"></div>
       </article>
-      <article class="table-block">
-        <h2>Capacity &amp; Latency</h2>
+
+      <article class="table-block" data-table="performance">
+        <div class="table-head">
+          <h2>Latency &amp; throughput</h2>
+          <div class="table-tools"></div>
+        </div>
         <div class="table-scroll" id="table-performance"></div>
       </article>
     </section>
   </main>
 
+  <dialog id="methodology" class="doc" aria-labelledby="doc-title">
+    <header class="doc-head">
+      <h2 id="doc-title">How it&#39;s calculated</h2>
+      <button type="button" class="ghost" id="methodology-close" aria-label="Close">Close</button>
+    </header>
+
+    <div class="doc-body">
+      <section>
+        <h3>Memory</h3>
+        <p>
+          Every number starts from the VRAM the serving runtime can actually touch, then subtracts what
+          is spoken for before any request arrives.
+        </p>
+        <dl>
+          <dt>Usable VRAM</dt>
+          <dd><code>GPUs x GPU memory x VRAM util</code> — the utilization factor is the share the runtime
+            is allowed to allocate (vLLM's <code>gpu_memory_utilization</code>).</dd>
+          <dt>Weights</dt>
+          <dd><code>params (B) x bytes per weight</code> — total parameters, not active ones, because all
+            experts of a mixture-of-experts model still occupy memory.</dd>
+          <dt>Free for KV</dt>
+          <dd><code>usable VRAM - (overhead x GPUs) - weights</code>, floored at zero. This is the pool
+            every concurrent request competes for.</dd>
+          <dt>KV per request</dt>
+          <dd>The KV cache for one sequence at the given context length, multiplied by the KV
+            fragmentation factor, plus any fixed recurrent state the architecture keeps. Context length
+            here is <code>input + output</code>.</dd>
+          <dt>Footprint</dt>
+          <dd><code>weights + overhead + (concurrent users x KV per request)</code>. Fits is a comparison
+            of this against usable VRAM.</dd>
+          <dt>Concurrent capacity</dt>
+          <dd><code>floor(free for KV / KV per request)</code>, evaluated both at your workload context
+            and at the model's maximum context window.</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h3>Latency</h3>
+        <p>
+          These are roofline estimates: prefill is compute-bound, decode is memory-bandwidth-bound, and
+          both use <em>active</em> parameters so mixture-of-experts models are not over-penalized. Multi-GPU
+          scaling is discounted for tensor-parallel communication (85% at 2 GPUs, 75% up to 4, 65% beyond).
+        </p>
+        <dl>
+          <dt>Prefill per token</dt>
+          <dd><code>2 x active params (B) / (effective GPUs x FP16 TFLOPS)</code> in ms, scaled by batch size.</dd>
+          <dt>TPOT</dt>
+          <dd>Time per output token: <code>bytes per weight x active params (B) / (effective GPUs x
+            bandwidth GB/s)</code> in ms, scaled by batch size. The batch-1 figure is the same formula
+            without that scaling — a best-case ceiling.</dd>
+          <dt>TTFT</dt>
+          <dd>Time to first token: <code>(input x prefill per token + TPOT) / 1000</code> seconds.</dd>
+          <dt>E2E</dt>
+          <dd><code>(input x prefill per token + output x TPOT) / 1000</code> seconds.</dd>
+          <dt>Throughput</dt>
+          <dd><code>concurrent users x output tokens / E2E</code> — aggregate output tokens per second
+            across the batch, not per user.</dd>
+        </dl>
+        <p class="note">
+          Latency cells read <code>INFEASIBLE</code> when the configuration does not fit in memory; there
+          is no meaningful speed for a deployment that cannot start.
+        </p>
+      </section>
+
+      <section>
+        <h3>KV cache by architecture</h3>
+        <p>
+          KV size is where model families diverge most, so the calculator branches on architecture. The
+          baseline shape is <code>2 x layers x KV heads x head dim x bytes x tokens</code> — the 2 covers
+          keys and values.
+        </p>
+        <dl>
+          <dt><span class="badge arch-standard">Standard</span></dt>
+          <dd>Every layer caches the full sequence. Grouped-query attention is already reflected in the KV
+            head count, which is why an 8-KV-head model caches far less than its 64 attention heads suggest.</dd>
+
+          <dt><span class="badge arch-hybrid_sliding">Hybrid sliding</span></dt>
+          <dd>Only a few layers attend globally; the rest use a sliding window and cache at most
+            <code>min(context, window)</code> tokens. Growth past the window is therefore driven by the
+            global layers alone. Some models also share one cache across a group of global layers, which
+            divides that portion further.</dd>
+
+          <dt><span class="badge arch-qwen3_hybrid">Qwen3 hybrid</span></dt>
+          <dd>Roughly one layer in four is real attention and caches the full sequence; the remaining
+            layers are gated linear-attention blocks whose recurrent state is a
+            <em>fixed</em> <code>heads x head dim x state dim</code> tensor per layer. That state is added
+            per request but does not grow with context, so long contexts cost a fraction of a standard
+            model.</dd>
+
+          <dt><span class="badge arch-mla">MLA</span></dt>
+          <dd>Multi-head latent attention stores one compressed latent per token instead of per-head keys
+            and values: <code>(KV LoRA rank + RoPE head dim) x bytes</code> per layer, with sliding layers
+            still capped at the window. This is the smallest per-token cache of the four.</dd>
+
+          <dt><span class="badge arch-vlm_multimodal">Multimodal</span></dt>
+          <dd>KV math follows the standard path — image and video tokens land in the same cache once
+            encoded. The weight figure includes the vision tower, and remember that a single image can
+            expand to hundreds or thousands of tokens, so raise the input length rather than expecting a
+            separate adjustment here.</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h3>Reading the tables</h3>
+        <p>
+          Each table shows the decision-critical columns by default. <strong>Details</strong> reveals
+          secondary columns — maximum-context figures, batch-1 ceilings, raw token counts — for every row
+          at once so they stay comparable. <strong>Copy JSON</strong> exports exactly the columns you can
+          see. Hover or focus a column header for a one-line definition.
+        </p>
+        <p class="note">
+          All of this is a first-order model, not a benchmark. It ignores activation memory, CUDA graph
+          padding, chunked prefill scheduling, speculative decoding and real-world queueing. Treat the
+          output as a shortlist of viable configurations to test, not a promise.
+        </p>
+      </section>
+    </div>
+  </dialog>
+
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>
